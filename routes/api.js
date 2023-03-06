@@ -21,7 +21,7 @@ module.exports = function (app) {
   const Project = mongoose.model('Project', projectSchema);
 
   app.route('/api/issues/:project')
-
+    //get是重点，post和put不通过，要先确认get没有问题
     .get(function (req, res) {
       let project = req.params.project;
 
@@ -33,13 +33,17 @@ module.exports = function (app) {
           }
 
           if (req.query) {
-            const obj = Object.fromEntries(
-              Object.entries(req.query).map(([k, v]) => ['issues.' + k, v])
+            const objToMatch = Object.fromEntries(
+              Object.entries(req.query).map(([k, v]) => {
+                if (k == '_id') v = new mongoose.Types.ObjectId(v);    //_id要特殊处理
+                k = 'issues.' + k;
+                return [k, v];
+              })
             );
             Project.aggregate([
               { $match: { project } },
               { $unwind: { path: '$issues' } },
-              { $match: obj }
+              { $match: objToMatch }
             ]).then(
               data => {
                 res.json(data.length > 0
@@ -86,40 +90,30 @@ module.exports = function (app) {
       let _id = req.body._id;
 
       const props = Object.entries(req.body).filter(([k, v]) => k != '_id' && v !== '');
-      console.log('put');
-      console.log(req.body);
       if (!_id) {
-        console.log({ error: 'missing _id' });
         res.json({ error: 'missing _id' });
         return;
       } else if (props.length === 0) {
-        console.log({ error: 'no update field(s) sent', _id });
         res.json({ error: 'no update field(s) sent', _id });
         return;
       }
-      console.log({ project });
+
       Project.findOne({ project }).then(
         doc => {
           if (!doc) {
-            console.log({ error: 'could not update1', _id });
             res.json({ error: 'could not update', _id });
             return;
           }
 
           const issue = doc.issues.id(_id);
           if (!issue) {
-            console.log({ error: 'could not update2', _id });
             res.json({ error: 'could not update', _id });
           } else {
             props.map(([k, v]) => { issue[k] = v; });
             issue['updated_on'] = Date.now();
             doc.save().then(
-              () => {
-                console.log({ result: 'successfully updated', _id }); res.json({ result: 'successfully updated', _id });
-              },
-              err => {
-                console.log({ error: 'could not update3', _id }); res.json({ error: 'could not update', _id });
-              }
+              () => { res.json({ result: 'successfully updated', _id }); },
+              err => { res.json({ error: 'could not update', _id }); }
             );
           }
         },
